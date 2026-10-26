@@ -49,7 +49,7 @@ az functionapp cors add -g $RG -n $FN --allowed-origins "$ORIGIN" -o none
 (cd api && npm install --omit=dev --no-audit --no-fund --silent && rm -f ../api.zip && zip -qr ../api.zip .)
 az functionapp deployment source config-zip -g $RG -n $FN --src api.zip -o none
 rm -f api.zip
-HOST=$(az functionapp show -g $RG -n $FN --query defaultHostName -o tsv)
+HOST=$(az webapp show -g $RG -n $FN --query defaultHostName -o tsv)
 
 echo "== Dados iniciais"
 if az storage entity show -t painelcs --partition-key config --row-key geral --connection-string "$CONN" -o none 2>/dev/null; then
