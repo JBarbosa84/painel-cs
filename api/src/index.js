@@ -4,7 +4,7 @@
  * - Valida o token do Microsoft Entra ID (login Microsoft da Elevalife).
  * - Diretoria = e-mails em config.admins. Líder = e-mail cadastrado em lideres.
  * - O líder só lê e grava as unidades da própria carteira, e só em meses abertos.
- * Dados no Azure Table Storage, tabela "cs":
+ * Dados no Azure Table Storage, tabela "painelcs":
  *   PK "unidade" | "lider" | "config"  RK = id
  *   PK "av-<ano>"                      RK = <unidadeId>__<mm>
  */
@@ -60,7 +60,17 @@ async function contexto(req) {
   const lideres = await listar("lider");
   const admin = (config.admins || []).map((x) => String(x).toLowerCase()).includes(eu.email);
   const liderId = Object.keys(lideres).find((k) => lideres[k].ativo !== false && String(lideres[k].email || "").toLowerCase() === eu.email) || null;
-  return { eu: { ...eu, admin, liderId }, config, lideres };
+  const l = liderId ? lideres[liderId] : null;
+  const perfil = admin ? "diretoria" : l ? (l.perfil === "coordenador" ? "coordenador" : "supervisor") : null;
+  const coordenaLinhas = perfil === "coordenador" ? (l.coordenaLinhas || []).filter((x) => LINHAS.includes(x)) : [];
+  return { eu: { ...eu, admin, liderId, perfil, coordenaLinhas }, config, lideres };
+}
+// Unidade visível/editável para quem está logado: diretoria vê tudo; coordenador vê as linhas que
+// coordena e a própria carteira; supervisor vê só a própria carteira.
+function noEscopo(eu, u) {
+  if (eu.admin) return true;
+  if (!eu.liderId || !u) return false;
+  return u.liderId === eu.liderId || (eu.perfil === "coordenador" && eu.coordenaLinhas.includes(u.linha));
 }
 function exigeAdmin(ctx) { if (!ctx.eu.admin) throw new ErroHttp(403, "Somente a diretoria pode fazer essa alteração."); }
 
@@ -94,7 +104,9 @@ rota("estado", ["GET"], async (req) => {
   const cfgPublica = { diaFechamento: config.diaFechamento, faixaOk: config.faixaOk, faixaAtencao: config.faixaAtencao, reabertos: config.reabertos || [] };
   if (!eu.admin && !eu.liderId) return { eu, config: cfgPublica, unidades: {}, lideres: {}, aval: {} };
   let unidades = await listar("unidade");
-  if (!eu.admin) unidades = Object.fromEntries(Object.entries(unidades).filter(([, u]) => u.liderId === eu.liderId));
+  if (!eu.admin) unidades = Object.fromEntries(Object.entries(unidades).filter(([, u]) => noEscopo(eu, u)));
+  const lideresVisiveis = eu.admin ? lideres : Object.fromEntries(Object.entries(lideres).filter(([k]) =>
+    k === eu.liderId || Object.values(unidades).some((u) => u.liderId === k)));
   const aval = {};
   for await (const e of tabela.listEntities({ queryOptions: { filter: `PartitionKey eq 'av-${ano}'` } })) {
     const [uid, mm] = e.rowKey.split("__");
@@ -105,7 +117,7 @@ rota("estado", ["GET"], async (req) => {
     eu,
     config: eu.admin ? config : cfgPublica,
     unidades,
-    lideres: eu.admin ? lideres : { [eu.liderId]: lideres[eu.liderId] },
+    lideres: lideresVisiveis,
     aval,
   };
 });
@@ -134,7 +146,7 @@ rota("avaliacao", ["PUT", "POST"], async (req) => {
   if (!u) throw new ErroHttp(404, "Unidade não encontrada.");
   if (futuro(ano, mes)) throw new ErroHttp(400, "Esse mês ainda não começou.");
   if (!ctx.eu.admin) {
-    if (u.liderId !== ctx.eu.liderId) throw new ErroHttp(403, "Essa unidade não está na sua carteira.");
+    if (!noEscopo(ctx.eu, u)) throw new ErroHttp(403, "Essa unidade não está na sua carteira nem na sua área.");
     if (fechado(ctx.config, ano, mes)) throw new ErroHttp(403, "Mês fechado. Peça à diretoria para reabrir.");
   }
   const rk = `${b.unidadeId}__${pad(mes)}`;
@@ -153,7 +165,7 @@ rota("unidade", ["PUT", "POST"], async (req) => {
   if (b.novo && (await ler("unidade", b.id))) throw new ErroHttp(409, "Já existe essa unidade nessa linha de serviço.");
   if (!txt(d.cliente).trim() || !txt(d.unidade).trim()) throw new ErroHttp(400, "Preencha cliente e unidade.");
   if (!LINHAS.includes(d.linha)) throw new ErroHttp(400, "Linha de serviço inválida.");
-  if (d.liderId && !ctx.lideres[d.liderId]) throw new ErroHttp(400, "Líder não encontrado.");
+  if (d.liderId && !ctx.lideres[d.liderId]) throw new ErroHttp(400, "Responsável não encontrado.");
   const u = {
     cliente: txt(d.cliente, 120).trim(), unidade: txt(d.unidade, 120).trim(), linha: d.linha, servico: txt(d.servico, 120),
     gestorCliente: txt(d.gestorCliente, 120), classFinan: ["A", "B", "C", "D"].includes(d.classFinan) ? d.classFinan : null,
@@ -171,8 +183,14 @@ rota("lider", ["PUT", "POST"], async (req) => {
   if (!validoId(b.id)) throw new ErroHttp(400, "Identificador inválido.");
   const email = d.email ? String(d.email).trim().toLowerCase() : null;
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new ErroHttp(400, "E-mail inválido.");
-  if (email && Object.entries(ctx.lideres).some(([k, l]) => k !== b.id && String(l.email || "").toLowerCase() === email)) throw new ErroHttp(409, "Esse e-mail já está com outro líder.");
-  const l = { rotulo: txt(d.rotulo, 80).trim() || b.id, email, linhas: (Array.isArray(d.linhas) ? d.linhas : []).filter((x) => LINHAS.includes(x)), ativo: d.ativo !== false };
+  if (email && Object.entries(ctx.lideres).some(([k, l]) => k !== b.id && String(l.email || "").toLowerCase() === email)) throw new ErroHttp(409, "Esse e-mail já está com outra pessoa da equipe.");
+  const perfil = d.perfil === "coordenador" ? "coordenador" : "supervisor";
+  const l = {
+    rotulo: txt(d.rotulo, 80).trim() || b.id, email, perfil,
+    linhas: (Array.isArray(d.linhas) ? d.linhas : []).filter((x) => LINHAS.includes(x)),
+    coordenaLinhas: perfil === "coordenador" ? (Array.isArray(d.coordenaLinhas) ? d.coordenaLinhas : []).filter((x) => LINHAS.includes(x)) : [],
+    ativo: d.ativo !== false,
+  };
   await gravar("lider", b.id, l);
   return { lider: l };
 });

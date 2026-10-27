@@ -130,10 +130,13 @@ function pill(st) { return st ? h("span", { class: "pill " + STATUS_CLS[st], tex
 function media(arr) { const a = arr.filter((x) => x != null); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; }
 
 /* ---------- escopo e filtros ---------- */
+const PERFIL_TXT = { coordenador: "Coordenador", supervisor: "Supervisor" };
+function perfilDe(l) { return l && l.perfil === "coordenador" ? "coordenador" : "supervisor"; }
+function veEquipe() { return S.admin || (S.eu && S.eu.perfil === "coordenador"); }
 function meuLider() { if (!S.eu || !S.eu.liderId || !S.lideres[S.eu.liderId]) return null; return { id: S.eu.liderId, ...S.lideres[S.eu.liderId] }; }
 function unidadesEscopo() {
   let us = Object.entries(S.unidades).map(([id, u]) => ({ id, ...u })).filter((u) => u.ativo !== false);
-  if (!S.admin) { const ml = meuLider(); us = ml ? us.filter((u) => u.liderId === ml.id) : []; }
+  if (!S.admin && !meuLider()) us = [];
   return us;
 }
 function unidadesFiltradas() {
@@ -146,7 +149,7 @@ function unidadesFiltradas() {
 }
 
 /* ---------- pessoas ---------- */
-function nomeLider(l) { if (!l) return "Sem líder"; return l.rotulo || "Líder"; }
+function nomeLider(l) { if (!l) return "Sem responsável"; return l.rotulo || "Responsável"; }
 function avatar(_uid, rotulo) {
   const ini = (rotulo || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   return h("div", { class: "av av-ini", text: ini });
@@ -188,14 +191,14 @@ function tudo() { renderTopo(); renderFiltros(); renderMain(); }
 /* ---------- topo e abas ---------- */
 function abas() {
   if (S.admin) return [["geral", "Visão geral"], ["historico", "Histórico"], ["cadastro", "Cadastro"], ["criterios", "Critérios"]];
-  return [["geral", "Minha carteira"], ["historico", "Histórico"], ["criterios", "Critérios"]];
+  return [["geral", veEquipe() ? "Minha área" : "Minha carteira"], ["historico", "Histórico"], ["criterios", "Critérios"]];
 }
 function renderTopo() {
   const nav = $("abas"); nav.replaceChildren(...abas().map(([k, t]) => h("button", { class: "aba", "aria-current": S.view === k ? "page" : null, onclick: () => { S.view = k; tudo(); window.scrollTo(0, 0); }, text: t })));
   const eu = $("eu"); eu.replaceChildren();
   if (!S.conta) return;
   const ml = meuLider();
-  const papel = S.admin ? "Diretoria" : ml ? "Líder · " + (ml.linhas || []).join(", ") : "Sem carteira";
+  const papel = S.admin ? "Diretoria" : ml ? (perfilDe(ml) === "coordenador" ? "Coordenador · " + ((S.eu.coordenaLinhas || []).join(", ") || "sem linha") : "Supervisor") : "Sem carteira";
   eu.append(h("span", {}, h("b", { style: "color:var(--topo-fg)", text: (S.conta.name || S.conta.username || "").split(" ")[0] }), " · " + papel),
     h("button", { class: "aba", onclick: carregar, title: "Buscar os dados mais recentes", text: "Atualizar" }),
     h("button", { class: "aba", onclick: () => MSAL.logoutRedirect({ account: S.conta }), text: "Sair" }));
@@ -212,7 +215,7 @@ function renderFiltros() {
     h("select", { id, value: val, onchange: (e) => on(e.target.value) }, opts));
   if (S.view === "geral") f.append(sel("Competência", "f-mes", String(S.mes), opcoesMes(), (v) => { S.mes = Number(v); renderMain(); }));
   f.append(sel("Linha", "f-linha", S.f.linha, [h("option", { value: "", text: "Todas" }), ...LINHAS.map((l) => h("option", { value: l, text: l }))], (v) => { S.f.linha = v; renderMain(); }));
-  if (S.admin) f.append(sel("Líder", "f-lider", S.f.lider, [h("option", { value: "", text: "Todos" }), ...Object.entries(S.lideres).map(([id, l]) => h("option", { value: id, text: nomeLider(l) }))], (v) => { S.f.lider = v; renderMain(); }));
+  if (veEquipe()) f.append(sel("Responsável", "f-lider", S.f.lider, [h("option", { value: "", text: "Todos" }), ...Object.entries(S.lideres).map(([id, l]) => h("option", { value: id, text: nomeLider(l) }))], (v) => { S.f.lider = v; renderMain(); }));
   f.append(sel("Classe financeira", "f-classe", S.f.classe, [h("option", { value: "", text: "Todas" }), ..."ABCD".split("").map((c) => h("option", { value: c, text: c }))], (v) => { S.f.classe = v; renderMain(); }));
   f.append(h("label", { class: "campo busca" }, h("span", { text: "Buscar" }), h("input", { id: "f-busca", type: "search", placeholder: "Cliente, unidade ou gestor do cliente", value: S.f.busca, oninput: (e) => { S.f.busca = e.target.value; renderMain(); } })));
 }
@@ -223,14 +226,14 @@ function renderMain() {
   if (!CFG.clientId) { app.replaceChildren(h("div", { class: "vazio" }, h("h3", { text: "Painel ainda não configurado" }), "Falta o arquivo config.js com os dados do aplicativo no Microsoft Entra ID.")); return; }
   if (!S.conta) {
     app.replaceChildren(h("div", { class: "vazio", style: "padding:48px 20px" }, h("h3", { text: "Entre com sua conta Microsoft da Elevalife" }),
-      h("p", { style: "margin:6px 0 18px", text: "Use o mesmo e-mail do Outlook e do Teams. Cada líder vê apenas a própria carteira." }),
+      h("p", { style: "margin:6px 0 18px", text: "Use o mesmo e-mail do Outlook e do Teams. Cada pessoa vê apenas a carteira ou a área dela." }),
       h("button", { class: "btn btn-pri", onclick: () => MSAL.loginRedirect({ scopes: ESCOPO }), text: "Entrar com Microsoft" })));
     return;
   }
   if (S.erro) { app.replaceChildren(h("div", { class: "vazio" }, h("h3", { text: "Não foi possível carregar o painel" }), h("p", { text: S.erro }), h("button", { class: "btn", onclick: carregar, text: "Tentar de novo" }))); return; }
   if (!S.pronto.u || !S.pronto.l) return;
   if (!S.admin && !meuLider() && S.view !== "criterios") {
-    app.replaceChildren(h("div", { class: "vazio" }, h("h3", { text: "Seu e-mail ainda não está ligado a uma carteira" }), `Você entrou como ${S.conta.username}. Peça à diretoria para cadastrar esse e-mail em Cadastro → Líderes.`));
+    app.replaceChildren(h("div", { class: "vazio" }, h("h3", { text: "Seu e-mail ainda não está ligado a uma carteira" }), `Você entrou como ${S.conta.username}. Peça à diretoria para cadastrar esse e-mail em Cadastro → Equipe.`));
     return;
   }
   const views = { geral: viewGeral, historico: viewHistorico, cadastro: viewCadastro, criterios: viewCriterios };
@@ -239,7 +242,7 @@ function renderMain() {
 
 function viewGeral() {
   const us = unidadesFiltradas();
-  if (!unidadesEscopo().length) return [h("div", { class: "vazio" }, h("h3", { text: "Nenhuma unidade na carteira" }), S.admin ? "Cadastre a primeira unidade em Cadastro → Unidades." : "Nenhuma unidade está atribuída a você ainda.")];
+  if (!unidadesEscopo().length) return [h("div", { class: "vazio" }, h("h3", { text: "Nenhuma unidade na carteira" }), S.admin ? "Cadastre a primeira unidade em Cadastro → Unidades." : "Nenhuma unidade está atribuída a você ou à sua área ainda.")];
   const ano = S.ano, mes = S.mes;
   const cs = us.map((u) => ({ u, c: calc(u, ano, mes), cp: mes > 1 ? calc(u, ano, mes - 1) : null }));
   const validas = cs.filter((x) => !x.c.vazio);
@@ -263,8 +266,8 @@ function viewGeral() {
   // evolução + alertas
   out.push(h("section", { class: "grade2" }, painelEvolucao(us), painelAlertas(cs)));
 
-  // líderes
-  if (S.admin) out.push(painelLideres(cs));
+  // equipe (diretoria e coordenadores)
+  if (veEquipe()) out.push(painelLideres(cs));
 
   // tabela
   out.push(tabelaCarteira(cs));
@@ -351,7 +354,7 @@ function painelAlertas(cs) {
   const bg = { crit: "background:var(--crit-bg);color:var(--crit)", warn: "background:var(--warn-bg);color:var(--warn)", pend: "background:var(--teal-suave);color:var(--teal)" };
   box.append(h("div", { class: "alertas" }, itens.map((a) => h("button", { class: "alerta", onclick: () => abrirUnidade(a.u.id, S.mes) },
     h("span", { class: "ico", style: bg[a.cor], text: a.ico }), h("span", {}, h("div", { class: "t", text: a.t }), h("div", { class: "s", text: a.s }))))),
-    resto > 0 ? h("p", { class: "desc", style: "margin:8px 0 0", text: `Mais ${resto} visitas previstas sem registro. Veja a coluna Status na carteira.` }) : null);
+    resto > 0 ? h("p", { class: "desc", style: "margin:8px 0 0", text: `Mais ${resto} visitas previstas sem registro. Veja a coluna Status na carteira.` }) : "");
   return box;
 }
 function painelLideres(cs) {
@@ -368,7 +371,7 @@ function painelLideres(cs) {
     const st = faixa(nm);
     return h("div", { class: "lider" },
       h("div", { class: "lider-top" }, avatar(l && l.uid, nomeLider(l)), h("div", { style: "min-width:0" }, h("div", { class: "lider-nome", text: nomeLider(l) }),
-        h("div", { class: "lider-sub", text: l ? (l.linhas || []).join(" · ") + (l.email ? "" : " · sem e-mail cadastrado") : "Unidades sem líder" }))),
+        h("div", { class: "lider-sub", text: l ? PERFIL_TXT[perfilDe(l)] + " · " + ((l.linhas || []).join(", ") || "sem linha") + (l.email ? "" : " · sem e-mail") : "Unidades sem responsável" }))),
       h("div", { class: "lider-nums" },
         h("div", {}, h("b", { class: "num", style: st ? `color:var(--${st})` : null, text: fmt(nm) }), h("span", { text: "Nota" })),
         h("div", {}, h("b", { class: "num", text: String(val.length) }), h("span", { text: "Unidades" })),
@@ -376,7 +379,7 @@ function painelLideres(cs) {
       h("div", { class: "barra", title: `${completos} de ${val.length} unidades com o mês completo` }, h("i", { style: `width:${pct}%` })),
       h("div", { class: "lider-sub", text: ult ? `Última atualização ${quando(ult)}` : "Sem atualizações no sistema ainda" }));
   });
-  return h("section", { class: "painel" }, h("h2", { text: "Carteiras por líder" }), h("p", { class: "desc", text: `Situação de ${MESES_L[S.mes - 1]}: nota média, unidades e quanto do mês já foi lançado.` }), h("div", { class: "lideres" }, cards));
+  return h("section", { class: "painel" }, h("h2", { text: S.admin ? "Carteiras por responsável" : "Carteiras da sua área" }), h("p", { class: "desc", text: `Situação de ${MESES_L[S.mes - 1]}: nota média, unidades e quanto do mês já foi lançado.` }), h("div", { class: "lideres" }, cards));
 }
 function chips(c) {
   if (!c || c.vazio) return h("span", { class: "crit" });
@@ -421,7 +424,7 @@ function tabelaCarteira(cs) {
     h("div", { class: "cab-painel", style: "margin-bottom:10px" }, h("div", {}, h("h2", { text: `Carteira · ${MESES_L[S.mes - 1]}` }), h("p", { class: "desc", style: "margin:0", text: "Clique numa unidade para ver o histórico e lançar as atividades do mês. Critérios: Objetivos · Relatório · Visita · Contato com gestor." }))));
   if (!cs.length) { box.append(h("div", { class: "vazio", text: "Nenhuma unidade com esses filtros." })); return box; }
   box.append(h("div", { class: "tabela-wrap" }, h("table", {},
-    h("thead", {}, h("tr", {}, ["Cliente / unidade", "Linha", "Líder", "Classe", "Visita", "Critérios", "6 meses", "", "Nota", "Status"].map((t) => h("th", { text: t })))),
+    h("thead", {}, h("tr", {}, ["Cliente / unidade", "Linha", "Responsável", "Classe", "Visita", "Critérios", "6 meses", "", "Nota", "Status"].map((t) => h("th", { text: t })))),
     h("tbody", {}, corpo))));
   return box;
 }
@@ -461,7 +464,7 @@ function viewCriterios() {
       h("li", { text: "Cada linha de serviço do cliente (Ergo, Fisio, Quiro, AF, Enfermagem/Med) é avaliada separadamente todo mês." }),
       h("li", { text: "A nota do mês é a média simples dos quatro critérios. Critérios marcados como N/A saem da conta." }),
       h("li", { text: "A visita só entra na conta nos meses previstos pela frequência da unidade (mensal, bimestral, trimestral, semestral). Se houver visita registrada fora do ciclo, ela conta." }),
-      h("li", { text: "Relatório, visita e contato são calculados a partir dos registros (data, canal, contato com o gestor). Objetivos é escolhido pelo líder." }),
+      h("li", { text: "Relatório, visita e contato são calculados a partir dos registros (data, canal, contato com o gestor). Objetivos é escolhido pelo responsável da unidade." }),
       h("li", { text: `O mês fecha no dia ${S.config.diaFechamento} do mês seguinte. Depois disso só a diretoria edita ou reabre. Critério sem registro em mês fechado vale 0.` }),
       h("li", { text: "A nota do cliente é a média das suas linhas. Os meses até outubro/2026 vieram das planilhas PAINEL_CS_ERGO e PAINEL_CS_GERAL." })))),
     h("section", { class: "criterios-tab" }, KEYS.map((k) => h("div", { class: "tabela-wrap" }, h("table", {},
@@ -480,7 +483,7 @@ function montarGaveta(cab, corpo, rod) {
 function podeEditar(u, ano, mes) {
   if (futuro(ano, mes) || antesInicio(u, ano, mes)) return false;
   if (S.admin) return true;
-  const ml = meuLider(); return !!ml && u.liderId === ml.id && !fechado(ano, mes);
+  return !!meuLider() && !!S.unidades[u.id] && !fechado(ano, mes);
 }
 function abrirUnidade(uid, mes) {
   const u = { id: uid, ...S.unidades[uid] }; if (!S.unidades[uid]) return;
@@ -506,7 +509,7 @@ function renderGavetaUnidade() {
       h("div", {}, h("div", { style: "font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--texto-3)", text: u.cliente }), h("h2", { text: `${u.unidade} · ${u.linha}` })),
       h("button", { class: "btn btn-sm", onclick: fecharGaveta, "aria-label": "Fechar", text: "Fechar" })),
     h("div", { class: "g-meta" },
-      h("span", {}, "Líder ", h("b", { text: nomeLider(l) })),
+      h("span", {}, "Responsável ", h("b", { text: nomeLider(l) })),
       h("span", {}, "Gestor do cliente ", h("b", { text: u.gestorCliente || "—" })),
       h("span", {}, "Classe ", h("b", { text: u.classFinan || "—" })),
       h("span", {}, "Visitas ", h("b", { text: u.freqVisita + (prevMeses.length && prevMeses.length < 12 ? ` (${prevMeses.join(", ")})` : "") })),
@@ -522,7 +525,7 @@ function renderGavetaUnidade() {
   corpo.push(h("div", { class: "resumo", id: "resumo" }, KEYS.map((k) => h("div", {}, h("span", { text: CRIT_NOME[k] }), h("b", { class: "num", text: c.v[k] === "NA" ? "N/A" : c.v[k] === null ? "…" : String(c.v[k]) }))),
     h("div", { class: "total" }, h("span", { text: "Nota" }), h("b", { class: "num", text: fmt(c.nota) }))));
   if (!editavel) {
-    const motivo = fechado(ano, mes) ? `Mês fechado em ${prazoFechamento(ano, mes)}. Só a diretoria pode editar ou reabrir.` : S.admin ? "" : "Esta unidade não está na sua carteira.";
+    const motivo = fechado(ano, mes) ? `Mês fechado em ${prazoFechamento(ano, mes)}. Só a diretoria pode editar ou reabrir.` : S.admin ? "" : "Esta unidade não está na sua carteira nem na sua área.";
     if (motivo) corpo.push(h("div", { class: "trava", text: "🔒 " + motivo }));
   } else if (!c.fech) {
     corpo.push(h("div", { class: "selo-orig", text: `Mês aberto até ${prazoFechamento(ano, mes)}. ${c.pend ? `${c.pend} critério(s) ainda sem registro.` : "Todos os critérios registrados."}` }));
@@ -623,7 +626,7 @@ async function salvarMes() {
 /* ---------- cadastro (diretoria) ---------- */
 function viewCadastro() {
   if (!S.admin) return [h("div", { class: "vazio", text: "Área restrita à diretoria." })];
-  const sub = h("div", { class: "subabas" }, [["unidades", "Unidades"], ["lideres", "Líderes"], ["config", "Configurações"]].map(([k, t]) =>
+  const sub = h("div", { class: "subabas" }, [["unidades", "Unidades"], ["lideres", "Equipe"], ["config", "Configurações"]].map(([k, t]) =>
     h("button", { class: "btn", "aria-pressed": S.cadAba === k ? "true" : "false", onclick: () => { S.cadAba = k; renderMain(); }, text: t })));
   const conteudo = { unidades: cadUnidades, lideres: cadLideres, config: cadConfig }[S.cadAba]();
   return [sub, ...[].concat(conteudo)];
@@ -632,10 +635,10 @@ function cadUnidades() {
   const todas = Object.entries(S.unidades).map(([id, u]) => ({ id, ...u })).sort((a, b) => a.cliente.localeCompare(b.cliente) || a.unidade.localeCompare(b.unidade));
   return h("section", {},
     h("div", { class: "cab-painel", style: "margin-bottom:10px" }, h("div", {}, h("h2", { style: "font-family:var(--f-display);font-size:15px;margin:0", text: `Unidades (${todas.length})` }),
-      h("p", { class: "desc", style: "font-size:12px;color:var(--texto-2);margin:2px 0 0", text: "Cada linha de serviço de um cliente é uma unidade avaliada. A carteira de cada líder é definida aqui." })),
+      h("p", { class: "desc", style: "font-size:12px;color:var(--texto-2);margin:2px 0 0", text: "Cada linha de serviço de um cliente é uma unidade avaliada. A carteira de cada supervisor ou coordenador é definida aqui." })),
       h("button", { class: "btn btn-pri", onclick: () => editarUnidade(null), text: "Nova unidade" })),
     h("div", { class: "tabela-wrap" }, h("table", {},
-      h("thead", {}, h("tr", {}, ["Cliente", "Unidade", "Linha", "Líder", "Gestor do cliente", "Classe", "Visita", "Situação", ""].map((t) => h("th", { text: t })))),
+      h("thead", {}, h("tr", {}, ["Cliente", "Unidade", "Linha", "Responsável", "Gestor do cliente", "Classe", "Visita", "Situação", ""].map((t) => h("th", { text: t })))),
       h("tbody", {}, todas.map((u) => h("tr", {},
         h("td", { style: "font-weight:600", text: u.cliente }), h("td", { text: u.unidade }),
         h("td", {}, h("span", { class: "tag-linha" }, h("i", { style: `background:${COR_LINHA[u.linha]}` }), u.linha)),
@@ -657,7 +660,7 @@ function editarUnidade(uid) {
     classFinan: h("select", { id: "u-classe", value: u.classFinan || "" }, h("option", { value: "", text: "—" }), "ABCD".split("").map((c) => h("option", { value: c, text: c }))),
     freqVisita: h("select", { id: "u-freq", value: u.freqVisita }, Object.keys(FREQ).map((f) => h("option", { value: f, text: f }))),
     refVisita: h("select", { id: "u-ref", value: String(u.refVisita || 1) }, MESES_L.map((m, i) => h("option", { value: String(i + 1), text: m }))),
-    liderId: h("select", { id: "u-lider", value: u.liderId || "" }, h("option", { value: "", text: "Sem líder (diretoria)" }), Object.entries(S.lideres).map(([id, l]) => h("option", { value: id, text: nomeLider(l) }))),
+    liderId: h("select", { id: "u-lider", value: u.liderId || "" }, h("option", { value: "", text: "Sem responsável (diretoria)" }), Object.entries(S.lideres).map(([id, l]) => h("option", { value: id, text: nomeLider(l) }))),
     inicio: h("input", { id: "u-inicio", type: "month", value: u.inicio || "" }),
     ativo: h("input", { id: "u-ativo", type: "checkbox", checked: u.ativo !== false }),
   };
@@ -677,57 +680,72 @@ function editarUnidade(uid) {
     } catch (e) { toast(e.message || "Não foi possível salvar a unidade."); }
   };
   montarGaveta([h("div", { style: "display:flex;justify-content:space-between;gap:10px" }, h("h2", { text: uid ? "Editar unidade" : "Nova unidade" }), h("button", { class: "btn btn-sm", onclick: fecharGaveta, text: "Fechar" })),
-    h("div", { class: "selo-orig", text: "Ao trocar o líder, a unidade e todo o seu histórico passam para a carteira do novo líder." })],
+    h("div", { class: "selo-orig", text: "Ao trocar o responsável, a unidade e todo o seu histórico passam para a carteira dele." })],
   [h("div", { class: "bloco" }, h("div", { class: "form-grade" },
     campo("Cliente", els.cliente), campo("Unidade", els.unidade), campo("Linha de serviço", els.linha), campo("Serviço", els.servico),
     campo("Gestor do cliente", els.gestorCliente), campo("Classe financeira (faturamento)", els.classFinan),
     campo("Frequência de visita", els.freqVisita), campo("Primeiro mês do ciclo de visita", els.refVisita),
-    campo("Líder responsável", els.liderId), campo("Avaliada a partir de", els.inicio)),
+    campo("Responsável (carteira)", els.liderId), campo("Avaliada a partir de", els.inicio)),
     h("label", { class: "check" }, els.ativo, "Unidade ativa (aparece nas carteiras e na nota)"))],
   [h("span"), h("div", { style: "display:flex;gap:8px" }, h("button", { class: "btn", onclick: fecharGaveta, text: "Cancelar" }), h("button", { class: "btn btn-pri", onclick: salvar, text: "Salvar unidade" }))]);
 }
 function cadLideres() {
   const cont = (lid) => Object.values(S.unidades).filter((u) => u.liderId === lid && u.ativo !== false).length;
+  const contArea = (l) => Object.values(S.unidades).filter((u) => u.ativo !== false && (l.coordenaLinhas || []).includes(u.linha)).length;
+  const ordem = (a, b) => (perfilDe(a[1]) === perfilDe(b[1]) ? nomeLider(a[1]).localeCompare(nomeLider(b[1])) : perfilDe(a[1]) === "coordenador" ? -1 : 1);
   return h("section", { style: "display:flex;flex-direction:column;gap:14px" },
-    h("div", { class: "painel ajuda" }, h("h2", { text: "Como dar acesso a um líder" }), h("ol", {},
-      h("li", { text: "Cadastre o líder aqui com o e-mail Microsoft dele (o mesmo do Outlook e do Teams)." }),
-      h("li", { text: "Atribua as unidades da carteira em Cadastro → Unidades." }),
-      h("li", { text: `Envie o endereço do painel: ${location.origin + location.pathname}. Ele entra com a conta Microsoft e vê só a carteira dele.` }),
-      h("li", { text: "Quem está na lista de diretoria (em Configurações) vê e edita tudo." }))),
-    h("div", { class: "cab-painel" }, h("h2", { style: "font-family:var(--f-display);font-size:15px;margin:0", text: "Líderes" }), h("button", { class: "btn btn-pri", onclick: () => editarLider(null), text: "Novo líder" })),
-    h("div", { class: "lideres" }, Object.entries(S.lideres).sort((a, b) => nomeLider(a[1]).localeCompare(nomeLider(b[1]))).map(([id, l]) =>
-      h("div", { class: "lider" },
+    h("div", { class: "painel ajuda" }, h("h2", { text: "Perfis de acesso" }), h("ol", {},
+      h("li", { text: "Diretoria (e-mails em Configurações): vê e edita tudo, inclusive cadastro e reabertura de mês." }),
+      h("li", { text: "Coordenador: vê todas as unidades das linhas que coordena, de qualquer supervisor, além da própria carteira. Lança nas unidades da área enquanto o mês está aberto." }),
+      h("li", { text: "Supervisor: vê e lança só nas unidades da própria carteira." }),
+      h("li", { text: `Para liberar alguém: cadastre o e-mail Microsoft, escolha o perfil, atribua as unidades em Cadastro → Unidades e envie o endereço ${location.origin + location.pathname}. Mudanças valem na próxima vez que a pessoa abrir o painel.` }))),
+    h("div", { class: "cab-painel" }, h("h2", { style: "font-family:var(--f-display);font-size:15px;margin:0", text: "Equipe" }), h("button", { class: "btn btn-pri", onclick: () => editarLider(null), text: "Nova pessoa" })),
+    h("div", { class: "lideres" }, Object.entries(S.lideres).sort(ordem).map(([id, l]) => {
+      const coord = perfilDe(l) === "coordenador";
+      return h("div", { class: "lider" },
         h("div", { class: "lider-top" }, avatar(null, nomeLider(l)), h("div", { style: "min-width:0" }, h("div", { class: "lider-nome", text: nomeLider(l) }),
-          h("div", { class: "lider-sub", text: (l.linhas || []).join(" · ") || "Sem linha definida" }))),
+          h("div", { class: "lider-sub", text: PERFIL_TXT[perfilDe(l)] + (coord ? " de " + ((l.coordenaLinhas || []).join(", ") || "nenhuma linha") : "") }))),
         h("div", { class: "lider-sub" }, l.email ? h("span", { class: "pill p-ok", text: "Acesso liberado" }) : h("span", { class: "pill p-warn", text: "Sem e-mail" }),
           l.email ? h("div", { style: "margin-top:6px;overflow-wrap:anywhere", text: l.email }) : null),
-        h("div", { class: "lider-sub", text: `${cont(id)} unidades ativas${l.ativo === false ? " · inativo" : ""}` }),
-        h("div", {}, h("button", { class: "btn btn-sm", onclick: () => editarLider(id), text: "Editar" }))))));
+        h("div", { class: "lider-sub", text: `${cont(id)} unidades na carteira` + (coord ? ` · ${contArea(l)} na área` : "") + (l.ativo === false ? " · inativo" : "") }),
+        h("div", {}, h("button", { class: "btn btn-sm", onclick: () => editarLider(id), text: "Editar" })));
+    })));
 }
 function editarLider(id) {
-  const l = id ? clone(S.lideres[id]) : { rotulo: "", linhas: [], email: "", ativo: true };
+  const l = id ? clone(S.lideres[id]) : { rotulo: "", linhas: [], email: "", ativo: true, perfil: "supervisor", coordenaLinhas: [] };
   S.gaveta = { tipo: "cad" };
-  const nome = h("input", { id: "l-nome", type: "text", value: l.rotulo, placeholder: "Como o líder aparece no painel" });
+  const nome = h("input", { id: "l-nome", type: "text", value: l.rotulo, placeholder: "Como a pessoa aparece no painel" });
   const email = h("input", { id: "l-email", type: "email", value: l.email || "", placeholder: "nome@elevalife.com.br", style: "width:100%" });
+  const perfil = h("select", { id: "l-perfil", value: perfilDe(l) }, h("option", { value: "supervisor", text: "Supervisor: vê só a própria carteira" }), h("option", { value: "coordenador", text: "Coordenador: vê as linhas que coordena" }));
   const checks = LINHAS.map((ln) => ({ ln, el: h("input", { type: "checkbox", id: "l-" + slug([ln]), checked: (l.linhas || []).includes(ln) }) }));
+  const coordChecks = LINHAS.map((ln) => ({ ln, el: h("input", { type: "checkbox", id: "lc-" + slug([ln]), checked: (l.coordenaLinhas || []).includes(ln) }) }));
+  const blocoCoord = h("div", { class: "campo" }, h("span", { text: "Coordena as linhas" }), h("div", { style: "display:flex;gap:12px;flex-wrap:wrap" }, coordChecks.map((c) => h("label", { class: "check" }, c.el, c.ln))),
+    h("small", { style: "color:var(--texto-3);font-size:11px", text: "Vê todas as unidades dessas linhas, de qualquer supervisor." }));
+  blocoCoord.hidden = perfilDe(l) !== "coordenador";
+  perfil.addEventListener("change", () => { blocoCoord.hidden = perfil.value !== "coordenador"; });
   const ativo = h("input", { id: "l-ativo", type: "checkbox", checked: l.ativo !== false });
   const salvar = async () => {
-    const rot = nome.value.trim(); if (!rot) return toast("Informe o nome do líder.");
+    const rot = nome.value.trim(); if (!rot) return toast("Informe o nome.");
     const em = email.value.trim().toLowerCase();
     if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return toast("Confira o e-mail.");
-    const novoId = id || slug([rot]); if (!id && S.lideres[novoId]) return toast("Já existe um líder com esse nome.");
+    const novoId = id || slug([rot]); if (!id && S.lideres[novoId]) return toast("Já existe alguém com esse nome na equipe.");
     const outro = em && Object.entries(S.lideres).find(([k, x]) => k !== novoId && (x.email || "").toLowerCase() === em);
     if (outro) return toast(`Esse e-mail já está com ${nomeLider(outro[1])}.`);
-    const corpo = { rotulo: rot, email: em || null, linhas: checks.filter((c) => c.el.checked).map((c) => c.ln), ativo: ativo.checked };
-    try { await api("lider", "PUT", { id: novoId, dados: corpo }); S.lideres[novoId] = corpo; toast("Líder salvo."); fecharGaveta(); renderMain(); renderFiltros(); }
-    catch (e) { toast(e.message || "Não foi possível salvar o líder."); }
+    const coordLinhas = coordChecks.filter((c) => c.el.checked).map((c) => c.ln);
+    if (perfil.value === "coordenador" && !coordLinhas.length) return toast("Marque ao menos uma linha que essa pessoa coordena.");
+    const corpo = { rotulo: rot, email: em || null, perfil: perfil.value, linhas: checks.filter((c) => c.el.checked).map((c) => c.ln),
+      coordenaLinhas: perfil.value === "coordenador" ? coordLinhas : [], ativo: ativo.checked };
+    try { await api("lider", "PUT", { id: novoId, dados: corpo }); S.lideres[novoId] = corpo; toast("Pessoa salva."); fecharGaveta(); renderMain(); renderFiltros(); }
+    catch (e) { toast(e.message || "Não foi possível salvar."); }
   };
-  montarGaveta([h("div", { style: "display:flex;justify-content:space-between;gap:10px" }, h("h2", { text: id ? "Editar líder" : "Novo líder" }), h("button", { class: "btn btn-sm", onclick: fecharGaveta, text: "Fechar" }))],
+  montarGaveta([h("div", { style: "display:flex;justify-content:space-between;gap:10px" }, h("h2", { text: id ? "Editar pessoa da equipe" : "Nova pessoa na equipe" }), h("button", { class: "btn btn-sm", onclick: fecharGaveta, text: "Fechar" }))],
     [h("div", { class: "bloco" }, h("label", { class: "campo" }, h("span", { text: "Nome" }), nome),
       h("label", { class: "campo" }, h("span", { text: "E-mail Microsoft" }), email),
-      h("div", { class: "campo" }, h("span", { text: "Linhas de serviço" }), h("div", { style: "display:flex;gap:12px;flex-wrap:wrap" }, checks.map((c) => h("label", { class: "check" }, c.el, c.ln)))),
-      h("label", { class: "check" }, ativo, "Líder ativo (sem isso, ele perde o acesso)"))],
-    [h("span"), h("div", { style: "display:flex;gap:8px" }, h("button", { class: "btn", onclick: fecharGaveta, text: "Cancelar" }), h("button", { class: "btn btn-pri", onclick: salvar, text: "Salvar líder" }))]);
+      h("label", { class: "campo" }, h("span", { text: "Perfil" }), perfil),
+      blocoCoord,
+      h("div", { class: "campo" }, h("span", { text: "Linhas em que atua" }), h("div", { style: "display:flex;gap:12px;flex-wrap:wrap" }, checks.map((c) => h("label", { class: "check" }, c.el, c.ln)))),
+      h("label", { class: "check" }, ativo, "Ativo (sem isso, a pessoa perde o acesso)"))],
+    [h("span"), h("div", { style: "display:flex;gap:8px" }, h("button", { class: "btn", onclick: fecharGaveta, text: "Cancelar" }), h("button", { class: "btn btn-pri", onclick: salvar, text: "Salvar" }))]);
 }
 function cadConfig() {
   const salvarCfg = async (patch) => {
@@ -741,12 +759,12 @@ function cadConfig() {
   const mesesF = []; for (let m = 1; m < ult; m++) mesesF.push(m);
   const reab = S.config.reabertos || [];
   return h("section", { style: "display:flex;flex-direction:column;gap:14px" },
-    h("div", { class: "painel" }, h("h2", { text: "Regras do mês" }), h("p", { class: "desc", text: "Valem para todos os líderes e para o cálculo das faixas." }),
+    h("div", { class: "painel" }, h("h2", { text: "Regras do mês" }), h("p", { class: "desc", text: "Valem para toda a equipe e para o cálculo das faixas." }),
       h("div", { class: "form-grade" },
         num("c-dia", "Dia de fechamento", "diaFechamento", 1, 28, "O mês fecha nesse dia do mês seguinte."),
         num("c-ok", "Saudável a partir de", "faixaOk", 50, 100, "Nota mínima da faixa verde."),
         num("c-at", "Atenção a partir de", "faixaAtencao", 0, 99, "Abaixo disso a unidade fica em risco."))),
-    h("div", { class: "painel" }, h("h2", { text: `Reabrir meses de ${S.ano}` }), h("p", { class: "desc", text: "Um mês reaberto volta a aceitar lançamentos dos líderes até você fechar de novo." }),
+    h("div", { class: "painel" }, h("h2", { text: `Reabrir meses de ${S.ano}` }), h("p", { class: "desc", text: "Um mês reaberto volta a aceitar lançamentos da equipe até você fechar de novo." }),
       h("div", { class: "meses-cfg" }, mesesF.map((m) => { const k = `${S.ano}-${pad(m)}`; const aberto = reab.includes(k);
         return h("label", { class: "check" }, h("input", { type: "checkbox", id: "r-" + m, checked: aberto, onchange: (e) => salvarCfg({ reabertos: e.target.checked ? [...reab, k] : reab.filter((x) => x !== k) }) }), MESES_L[m - 1]); }))),
     h("div", { class: "painel" }, h("h2", { text: "Diretoria" }), h("p", { class: "desc", text: "E-mails que veem e editam todas as carteiras, o cadastro e as configurações. Um por linha." }),
@@ -756,7 +774,7 @@ function cadConfig() {
       h("button", { class: "btn", onclick: exportarCsv, text: "Baixar CSV do ano" })));
 }
 async function exportarCsv() {
-  const linhas = [["Cliente", "Unidade", "Linha", "Serviço", "Líder", "Gestor do cliente", "Classe", "Frequência", "Competência", "Objetivos", "Relatório", "Visita", "Contato gestor", "Nota", "Status"]];
+  const linhas = [["Cliente", "Unidade", "Linha", "Serviço", "Responsável", "Gestor do cliente", "Classe", "Frequência", "Competência", "Objetivos", "Relatório", "Visita", "Contato gestor", "Nota", "Status"]];
   const ult = HOJE.getFullYear() === S.ano ? HOJE.getMonth() + 1 : 12;
   Object.entries(S.unidades).forEach(([id, u0]) => { const u = { id, ...u0 };
     for (let m = 1; m <= ult; m++) { const c = calc(u, S.ano, m); if (c.vazio) continue;
