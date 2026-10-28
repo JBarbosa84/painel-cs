@@ -108,7 +108,7 @@ function calc(u, ano, mes, mOver) {
   else if (!doImp("ctt")) v.ctt = null;
   let pend = 0;
   for (const k of KEYS) if (v[k] === null) { if (fech) v[k] = 0; else pend++; }
-  const nums = KEYS.map((k) => v[k]).filter((x) => typeof x === "number");
+  const nums = KEYS.map((k) => (v[k] === null ? 0 : v[k])).filter((x) => typeof x === "number");
   const nota = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
   return { v, origem, pend, nota, fech, prev, m };
 }
@@ -465,7 +465,7 @@ function viewCriterios() {
       h("li", { text: "A nota do mês é a média simples dos quatro critérios. Critérios marcados como N/A saem da conta." }),
       h("li", { text: "A visita só entra na conta nos meses previstos pela frequência da unidade (mensal, bimestral, trimestral, semestral). Se houver visita registrada fora do ciclo, ela conta." }),
       h("li", { text: "Relatório, visita e contato são calculados a partir dos registros (data, canal, contato com o gestor). Objetivos é escolhido pelo responsável da unidade." }),
-      h("li", { text: `O mês fecha no dia ${S.config.diaFechamento} do mês seguinte. Depois disso só a diretoria edita ou reabre. Critério sem registro em mês fechado vale 0.` }),
+      h("li", { text: `O mês fecha no dia ${S.config.diaFechamento} do mês seguinte. Depois disso só a diretoria edita ou reabre. Critério previsto e ainda sem registro conta como 0 na nota, inclusive no mês em andamento (só N/A sai da conta).` }),
       h("li", { text: "A nota do cliente é a média das suas linhas. Os meses até outubro/2026 vieram das planilhas PAINEL_CS_ERGO e PAINEL_CS_GERAL." })))),
     h("section", { class: "criterios-tab" }, KEYS.map((k) => h("div", { class: "tabela-wrap" }, h("table", {},
       h("thead", {}, h("tr", {}, h("th", { text: "Nível" }), h("th", { text: CRIT_NOME[k] }))),
