@@ -770,6 +770,21 @@ function cadConfig() {
     h("div", { class: "painel" }, h("h2", { text: "Diretoria" }), h("p", { class: "desc", text: "E-mails que veem e editam todas as carteiras, o cadastro e as configurações. Um por linha." }),
       h("textarea", { id: "c-admins", rows: "4", value: (S.config.admins || []).join("\n") }),
       h("div", { style: "margin-top:8px" }, h("button", { class: "btn", onclick: () => { const v = $("c-admins").value.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean); salvarCfg({ admins: v }); }, text: "Salvar diretoria" }))),
+    h("div", { class: "painel" }, h("h2", { text: "Lembretes por e-mail" }),
+      h("p", { class: "desc", text: "Enviados automaticamente às 7h (Brasília) de joao@elevalife.com.br para toda a equipe com e-mail cadastrado. Use o teste para receber na sua caixa uma cópia de cada e-mail que a equipe receberia hoje." }),
+      h("div", { style: "display:flex;flex-direction:column;gap:8px" }, [
+        ["relatorio", "Dia 10", "Lembrete do relatório mensal, com as unidades ainda sem relatório"],
+        ["desempenho", "Dia 20", "Desempenho parcial da carteira e criticidades; coordenadores recebem também a área"],
+        ["prazo", "Último dia do mês", "Aviso de que os lançamentos fecham no dia seguinte, com as pendências"],
+      ].map(([tipo, quando, desc]) => h("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;border:1px solid var(--linha);border-radius:8px;padding:8px 10px" },
+        h("div", { style: "min-width:0;flex:1 1 260px" }, h("b", { text: quando }), h("div", { class: "ajuda", text: desc })),
+        h("button", { class: "btn btn-sm", onclick: async (e) => {
+          const bt = e.currentTarget; bt.disabled = true; bt.textContent = "Enviando…";
+          try { const r = await api("lembretes", "POST", { tipo, modo: "teste" }); const ok = r.resultado.filter((x) => x.ok).length;
+            toast(ok === r.resultado.length ? `${ok} e-mails de teste enviados para você.` : `Falha no envio: ${(r.resultado.find((x) => !x.ok) || {}).erro || "erro"}`); }
+          catch (err) { toast(err.message || "Não foi possível enviar o teste."); }
+          bt.disabled = false; bt.textContent = "Enviar teste para mim";
+        }, text: "Enviar teste para mim" }))))),
     h("div", { class: "painel" }, h("h2", { text: "Exportar" }), h("p", { class: "desc", text: "Planilha com a nota de cada unidade por mês e critério, para análises fora do painel." }),
       h("button", { class: "btn", onclick: exportarCsv, text: "Baixar CSV do ano" })));
 }

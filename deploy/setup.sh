@@ -43,7 +43,12 @@ sleep 20
 az ad app permission admin-consent --id $APPID || echo "!! Conceda o consentimento em Entra ID > Registros de aplicativo > Painel CS Elevalife > Permissoes de API"
 
 echo "== Configuracao e publicacao da API"
-az functionapp config appsettings set -g $RG -n $FN --settings TENANT_ID=$TENANT CLIENT_ID=$APPID TABLES_CONNECTION="$CONN" -o none
+MAIL_FROM=${MAIL_FROM:-joao@elevalife.com.br}
+az functionapp config appsettings set -g $RG -n $FN --settings TENANT_ID=$TENANT CLIENT_ID=$APPID TABLES_CONNECTION="$CONN" MAIL_FROM=$MAIL_FROM SITE_URL=$SITE -o none
+az functionapp identity assign -g $RG -n $FN -o none
+MI_OID=$(az functionapp identity show -g $RG -n $FN --query principalId -o tsv)
+MI_APPID=$(az ad sp show --id $MI_OID --query appId -o tsv)
+echo "Identidade da API: appId=$MI_APPID objectId=$MI_OID (permissao de e-mail: deploy/email-permissao.ps1)"
 az functionapp cors remove -g $RG -n $FN --allowed-origins "$ORIGIN" -o none 2>/dev/null || true
 az functionapp cors add -g $RG -n $FN --allowed-origins "$ORIGIN" -o none
 (cd api && npm install --omit=dev --no-audit --no-fund --silent && rm -f ../api.zip && zip -qr ../api.zip .)

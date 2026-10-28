@@ -210,3 +210,6 @@ rota("config", ["PUT", "POST"], async (req) => {
   await gravar("config", "geral", c);
   return { config: c };
 });
+
+/* ---------- lembretes por e-mail ---------- */
+require("./lembretes")({ app, rota, contexto, exigeAdmin, corpo, listar, ler, gravar, ErroHttp });
