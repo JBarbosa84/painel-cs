@@ -11,7 +11,7 @@ const KEYS = ["obj", "rel", "vis", "ctt"];
 const CRIT_NOME = { obj: "Objetivos", rel: "Relatório", vis: "Visita", ctt: "Contato gestor" };
 const CRITERIOS = {
   obj: [[100, "Objetivo alinhado com KPIs do OBJ e do SRV"], [75, "Objetivo alinhado sem KPI do OBJ, com KPI do SRV"], [50, "Sem objetivo alinhado, com KPI do SRV"], [0, "Sem objetivo alinhado e sem KPI do SRV"]],
-  rel: [[100, "Entregue no prazo (até o dia 10 do mês)"], [50, "Entregue dentro do mês"], [0, "Não entregue"]],
+  rel: [[100, "Entregue até o dia 10 do mês seguinte"], [50, "Entregue do dia 11 ao 15 do mês seguinte"], [0, "Não entregue ou entregue após o dia 15 do mês seguinte"]],
   vis: [[100, "Realizada com contato com o gestor"], [75, "Realizada sem contato com o gestor"], [0, "Prevista e não realizada"], ["N/A", "Sem visita prevista no mês (sai da conta)"]],
   ctt: [[100, "Realizado em reunião (presencial ou remota)"], [50, "Realizado por WhatsApp/Teams (informal)"], [0, "Não realizado"]],
 };
@@ -82,9 +82,11 @@ function fechado(ano, mes) {
 function prazoFechamento(ano, mes) { const d = new Date(ano, mes, Number(S.config.diaFechamento) || 10); return d.toLocaleDateString("pt-BR"); }
 function antesInicio(u, ano, mes) { return !!u.inicio && `${ano}-${pad(mes)}` < u.inicio; }
 function relNivel(data, ano, mes) {
+  // Relatório do mês M: até o dia 10 do mês seguinte = 100; dia 11 a 15 = 50; depois = 0.
   const [y, m, d] = data.split("-").map(Number);
-  if (y * 12 + m < ano * 12 + mes) return 100;
-  if (y === ano && m === mes) return d <= 10 ? 100 : 50;
+  const idx = y * 12 + m, ref = ano * 12 + mes;
+  if (idx <= ref) return 100;
+  if (idx === ref + 1) return d <= 10 ? 100 : d <= 15 ? 50 : 0;
   return 0;
 }
 function avalDe(uid) { return { doc: S.aval[uid] }; }
@@ -547,7 +549,7 @@ function renderGavetaUnidade() {
   const rel = g.rasc.relatorio;
   corpo.push(h("div", { class: "bloco" },
     h("div", { class: "bloco-cab" }, h("h3", { text: "Relatório mensal" }), h("span", { class: "valor-crit num", text: c.v.rel === "NA" ? "N/A" : c.v.rel == null ? "…" : String(c.v.rel) })),
-    h("div", { class: "regra", text: "Até o dia 10 = 100 · depois do dia 10, dentro do mês = 50 · não entregue = 0." }), origemTxt("rel"),
+    h("div", { class: "regra", text: "Até o dia 10 do mês seguinte = 100 · do dia 11 ao 15 do mês seguinte = 50 · depois do dia 15 ou não entregue = 0." }), origemTxt("rel"),
     h("div", { class: "form-linha" },
       h("label", { class: "campo" }, h("span", { text: "Data de entrega" }), h("input", { id: "rel-data", type: "date", value: rel.data || "", disabled: !editavel || rel.naoEntregue, onchange: (e) => { rel.data = e.target.value || null; g.sujo = true; renderGavetaUnidade(); } })),
       h("label", { class: "check" }, h("input", { id: "rel-nao", type: "checkbox", checked: !!rel.naoEntregue, disabled: !editavel, onchange: (e) => { rel.naoEntregue = e.target.checked; if (rel.naoEntregue) rel.data = null; g.sujo = true; renderGavetaUnidade(); } }), "Não entregue")),
@@ -773,9 +775,9 @@ function cadConfig() {
     h("div", { class: "painel" }, h("h2", { text: "Lembretes por e-mail" }),
       h("p", { class: "desc", text: "Enviados automaticamente às 7h (Brasília) de joao@elevalife.com.br para toda a equipe com e-mail cadastrado. Use o teste para receber na sua caixa uma cópia de cada e-mail que a equipe receberia hoje." }),
       h("div", { style: "display:flex;flex-direction:column;gap:8px" }, [
-        ["relatorio", "Dia 10", "Lembrete do relatório mensal, com as unidades ainda sem relatório"],
+        ["relatorio", "Dia 10", "Último dia para lançar o mês anterior (relatório vale 100 até hoje), com as pendências"],
         ["desempenho", "Dia 20", "Desempenho parcial da carteira e criticidades; coordenadores recebem também a área"],
-        ["prazo", "Último dia do mês", "Aviso de que os lançamentos fecham no dia seguinte, com as pendências"],
+        ["prazo", "Último dia do mês", "Fim do mês: lembra que os lançamentos e o relatório vão até o dia 10, com as pendências"],
       ].map(([tipo, quando, desc]) => h("div", { style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between;border:1px solid var(--linha);border-radius:8px;padding:8px 10px" },
         h("div", { style: "min-width:0;flex:1 1 260px" }, h("b", { text: quando }), h("div", { class: "ajuda", text: desc })),
         h("button", { class: "btn btn-sm", onclick: async (e) => {
