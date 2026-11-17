@@ -1,9 +1,9 @@
 "use strict";
 /*
  * Lembretes por e-mail do Painel CS (horário de Brasília, UTC-3):
- *  - dia 10: lembrete do relatório mensal (vale 100 se entregue até hoje)
+ *  - dia 10: último dia para lançar o mês anterior (o relatório vale 100 até hoje)
  *  - dia 20: desempenho parcial da carteira e criticidades
- *  - último dia do mês: o prazo de lançamento fecha amanhã (dia 1)
+ *  - último dia do mês: o mês termina; lançamentos e relatório vão até o dia 10 do mês seguinte
  * Vai para toda a equipe ativa com e-mail (coordenadores e supervisores).
  * Envio pelo Microsoft Graph com a identidade gerenciada da Function App; a permissão de
  * envio é dada no Exchange Online (RBAC for Applications) só para a caixa MAIL_FROM.
@@ -34,9 +34,11 @@ function tipoDoDia(h) {
 /* ---------- regra de pontuação (mesma do site) ---------- */
 function prevista(u, mes) { const p = FREQ[u.freqVisita] || 0; if (!p) return false; const ref = u.refVisita || 1; return (((mes - ref) % p) + p) % p === 0; }
 function relNivel(data, ano, mes) {
+  // Relatório do mês M: até o dia 10 do mês seguinte = 100; dia 11 a 15 = 50; depois = 0.
   const [y, m, d] = data.split("-").map(Number);
-  if (y * 12 + m < ano * 12 + mes) return 100;
-  if (y === ano && m === mes) return d <= 10 ? 100 : 50;
+  const idx = y * 12 + m, ref = ano * 12 + mes;
+  if (idx <= ref) return 100;
+  if (idx === ref + 1) return d <= 10 ? 100 : d <= 15 ? 50 : 0;
   return 0;
 }
 function calc(u, ano, mes, m) {
@@ -59,7 +61,7 @@ const media = (a) => { const x = a.filter((n) => n != null); return x.length ? x
 
 /* ---------- montagem dos dados ---------- */
 async function carregar({ listar, ler }, h) {
-  const config = { diaFechamento: 1, faixaOk: 85, faixaAtencao: 70, ...((await ler("config", "geral")) || {}) };
+  const config = { diaFechamento: 10, faixaOk: 85, faixaAtencao: 70, ...((await ler("config", "geral")) || {}) };
   const unidades = Object.fromEntries(Object.entries(await listar("unidade")).filter(([, u]) => u.ativo !== false));
   const lideres = await listar("lider");
   const ant = h.mes === 1 ? { ano: h.ano - 1, mes: 12 } : { ano: h.ano, mes: h.mes - 1 };
@@ -74,7 +76,7 @@ async function carregar({ listar, ler }, h) {
     const cAnt = calc(u, ant.ano, ant.mes, mesDe(id, ant.ano, ant.mes));
     const mAt = mesDe(id, h.ano, h.mes) || {};
     const relPendente = c && c.v.rel === null;
-    return { id, u, c, cAnt, relPendente, semLancamento: !mAt.atualizadoEm && !mAt.importado };
+    return { id, u, c, cAnt, relPendente, relPendenteAnt: !!cAnt && cAnt.v.rel === null, pendAnt: cAnt ? cAnt.pendentes : [], semLancamento: !mAt.atualizadoEm && !mAt.importado };
   }).filter((x) => x.c);
   return { config, unidades, lideres, linhas };
 }
@@ -165,16 +167,21 @@ function montar(tipo, pessoa, id, dados, h) {
       .sort((a, b) => (a.r.nota == null) - (b.r.nota == null) || (a.r.nota || 0) - (b.r.nota || 0));
   };
   if (tipo === "relatorio") {
-    const pend = minhas.filter((x) => x.relPendente);
-    let corpo = `<p style="font-size:14px;margin:0 0 10px">Hoje, <b>${pad(h.dia)}/${pad(h.mes)}</b>, é o último dia para o relatório mensal de ${esc(mesNome)} valer <b>100</b>. A partir de amanhã, a entrega vale 50 até o fim do mês.</p>`;
+    // Dia 10: último dia para lançar o mês anterior; o relatório desse mês vale 100 até hoje.
+    const ant = h.mes === 1 ? { m: 12, a: h.ano - 1 } : { m: h.mes - 1, a: h.ano };
+    const antNome = MESES_L[ant.m - 1];
+    const comoAnt = (x) => ({ ...x, c: x.cAnt });
+    const pend = minhas.filter((x) => x.cAnt && x.pendAnt.length).map(comoAnt);
+    const semRel = minhas.filter((x) => x.relPendenteAnt).length;
+    let corpo = `<p style="font-size:14px;margin:0 0 10px">Hoje, <b>${pad(h.dia)}/${pad(h.mes)}</b>, é o último dia para lançar <b>${esc(antNome)}</b> no painel. O relatório de ${esc(antNome)} vale <b>100</b> se entregue até hoje; do dia 11 ao 15 vale 50 e, depois disso, 0. Os lançamentos de ${esc(antNome)} fecham hoje, ao fim do dia; depois, só a diretoria consegue alterar.</p>`;
     corpo += pend.length
-      ? h2(`Unidades da sua carteira ainda sem relatório registrado (${pend.length})`) + tabelaUnidades(pend, config)
-      : `<p style="font-size:13px;color:#1a8a43">Todas as unidades da sua carteira já têm o relatório registrado. Obrigado!</p>`;
+      ? h2(`Unidades da sua carteira com pendência em ${antNome} (${pend.length}${semRel ? `, ${semRel} sem relatório` : ""})`) + tabelaUnidades(pend, config)
+      : `<p style="font-size:13px;color:#1a8a43">Sua carteira está com ${esc(antNome)} todo lançado, incluindo o relatório. Obrigado!</p>`;
     if (coord.length) {
-      const pa = area.filter((x) => x.relPendente && x.u.liderId !== id);
-      corpo += h2(`Na sua área (${coord.join(", ")})`) + `<p style="font-size:13px;margin:0">${pa.length ? `${pa.length} unidades de outros responsáveis ainda sem relatório.` : "As demais carteiras da área estão em dia com o relatório."}</p>`;
+      const pa = area.filter((x) => x.cAnt && x.pendAnt.length && x.u.liderId !== id);
+      corpo += h2(`Na sua área (${coord.join(", ")})`) + `<p style="font-size:13px;margin:0">${pa.length ? `${pa.length} unidades de outros responsáveis ainda com pendência em ${esc(antNome)}.` : `As demais carteiras da área estão com ${esc(antNome)} em dia.`}</p>`;
     }
-    return { assunto: `Painel CS · Relatório mensal de ${mesNome}: o prazo para nota 100 é hoje`, html: casca(`Relatório mensal de ${mesNome}`, `Olá, ${primeiro}!`, corpo) };
+    return { assunto: `Painel CS · Hoje é o último dia para lançar ${antNome} (relatório vale 100 até hoje)`, html: casca(`Prazo final de ${antNome}: hoje`, `Olá, ${primeiro}!`, corpo) };
   }
   if (tipo === "desempenho") {
     const r = resumo(minhas, config);
@@ -192,12 +199,13 @@ function montar(tipo, pessoa, id, dados, h) {
   }
   // prazo
   const pend = minhas.filter((x) => x.c.pendentes.length);
-  let corpo = `<p style="font-size:14px;margin:0 0 10px">Os lançamentos de <b>${esc(mesNome)}</b> fecham <b>amanhã, ${pad(1)}/${pad(prox.m)}</b>, ao fim do dia. Depois disso, só a diretoria consegue alterar. Critério previsto e sem registro fica com nota 0.</p>`;
+  const diaF = Number(config.diaFechamento) || 10;
+  let corpo = `<p style="font-size:14px;margin:0 0 10px"><b>${esc(mesNome)}</b> termina hoje. Você tem até <b>${pad(diaF)}/${pad(prox.m)}</b> para lançar tudo do mês, incluindo o relatório, que vale 100 se entregue até o dia 10 (do dia 11 ao 15 vale 50). Critério previsto e sem registro fica com nota 0.</p>`;
   corpo += pend.length
     ? h2(`Unidades da sua carteira com lançamento pendente (${pend.length})`) + tabelaUnidades(pend, config)
     : `<p style="font-size:13px;color:#1a8a43">Sua carteira está com tudo lançado em ${esc(mesNome)}. Obrigado!</p>`;
   if (coord.length) corpo += h2(`Sua área (${coord.join(", ")})`) + cardsEquipe(porPessoa(), config);
-  return { assunto: `Painel CS · Último dia: lançamentos de ${mesNome} fecham amanhã`, html: casca(`Prazo de ${mesNome} termina amanhã`, `Olá, ${primeiro}!`, corpo) };
+  return { assunto: `Painel CS · ${mesNome} termina hoje: lançamentos e relatório até ${pad(diaF)}/${pad(prox.m)}`, html: casca(`${mesNome} termina hoje`, `Olá, ${primeiro}!`, corpo) };
 }
 
 /* ---------- envio ---------- */
