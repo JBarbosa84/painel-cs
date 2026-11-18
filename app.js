@@ -277,7 +277,8 @@ function viewGeral() {
 }
 
 function serieMensal(us, filtro) {
-  const ult = HOJE.getFullYear() === S.ano ? HOJE.getMonth() + 1 : 12; const vals = [];
+  // Só até a competência escolhida no filtro (nunca além do mês atual).
+  const ult = Math.min(HOJE.getFullYear() === S.ano ? HOJE.getMonth() + 1 : 12, S.mes || 12); const vals = [];
   for (let m = 1; m <= ult; m++) vals.push(media(us.filter(filtro).map((u) => { const c = calc(u, S.ano, m); return c.vazio ? null : c.nota; })));
   return vals;
 }
