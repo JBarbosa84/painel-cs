@@ -213,3 +213,4 @@ rota("config", ["PUT", "POST"], async (req) => {
 
 /* ---------- lembretes por e-mail ---------- */
 require("./lembretes")({ app, rota, contexto, exigeAdmin, corpo, listar, ler, gravar, ErroHttp });
+require("./resumo")({ rota, listar, ler, ErroHttp });
