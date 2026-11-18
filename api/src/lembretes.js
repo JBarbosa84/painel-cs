@@ -261,3 +261,4 @@ module.exports = function registrar(deps) {
   });
 };
 module.exports._teste = { calc, hojeBR, tipoDoDia, montar, resumo };
+module.exports.interno = { calc, prevista, faixa, media, hojeBR, pad, KEYS };
